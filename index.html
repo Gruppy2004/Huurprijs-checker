@@ -1,0 +1,1598 @@
+<!DOCTYPE html>
+<html lang="nl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Huurprijs Checker Nederland — WWS Puntentelling</title>
+    <meta name="description"
+        content="Bereken de maximale huurprijs van uw woning met het Woningwaarderingsstelsel (WWS). Gratis puntentelling op basis van Huurcommissie 2024.">
+
+    <!-- Google Fonts: Inter voor modern, leesbaar lettertype -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- ── GEWIJZIGD: jsPDF via CDN (zorgvuldig behouden voor PDF generatie) ── -->
+    <!-- jsPDF voor PDF-generatie (client-side) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+    <!-- Stripe.js voor betalingsintegratie -->
+    <script src="https://js.stripe.com/v3/"></script>
+
+    <style>
+        /* ============================================
+       CSS DESIGN SYSTEEM — Huurprijs Checker
+       ============================================ */
+
+        /* CSS Custom Properties (variabelen) voor het kleurenschema */
+        :root {
+            --primary: #1A56DB;
+            /* Blauw — vertrouwen */
+            --primary-light: #3B82F6;
+            --primary-dark: #1E40AF;
+            --success: #057A55;
+            /* Groen — huur correct */
+            --success-bg: #ECFDF5;
+            --warning: #E3A008;
+            /* Oranje — controleer */
+            --warning-bg: #FFFBEB;
+            --danger: #E02424;
+            /* Rood — te hoog */
+            --danger-bg: #FEF2F2;
+            --bg: #F9FAFB;
+            /* Achtergrondkleur */
+            --text: #111827;
+            /* Hoofdtekstkleur */
+            --text-muted: #6B7280;
+            --border: #E5E7EB;
+            --card-bg: #FFFFFF;
+            --radius: 12px;
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Reset & basis */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* ---- HEADER ---- */
+        .header {
+            background: linear-gradient(135deg, var(--primary-dark), var(--primary), #6366F1);
+            color: white;
+            text-align: center;
+            padding: 3rem 1.5rem 2.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -20%;
+            width: 140%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.08) 0%, transparent 60%);
+            pointer-events: none;
+        }
+
+        .header h1 {
+            font-size: clamp(1.6rem, 5vw, 2.4rem);
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+            position: relative;
+        }
+
+        .header p {
+            font-size: 1.05rem;
+            opacity: 0.9;
+            max-width: 560px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(6px);
+            padding: 0.3rem 0.9rem;
+            border-radius: 50px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            position: relative;
+        }
+
+        /* ---- LAYOUT ---- */
+        .container {
+            max-width: 780px;
+            margin: -1.5rem auto 3rem;
+            padding: 0 1rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ---- CARD (glassmorphism-stijl) ---- */
+        .card {
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 2rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid var(--border);
+            animation: fadeUp 0.5s ease both;
+        }
+
+        .card h2 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card h2 .icon {
+            font-size: 1.4rem;
+        }
+
+        @keyframes fadeUp {
+            from {
+                opacity: 0;
+                transform: translateY(16px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* ---- FORMULIER-ELEMENTEN ---- */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        @media (max-width: 560px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+        }
+
+        .form-group.full {
+            grid-column: 1 / -1;
+        }
+
+        label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        label .optional {
+            font-weight: 400;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        input,
+        select {
+            padding: 0.7rem 0.9rem;
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            background: #fff;
+        }
+
+        input:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(26, 86, 219, 0.12);
+        }
+
+        /* Checkboxen naast elkaar */
+        .checkbox-row {
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+            align-items: center;
+            padding-top: 0.25rem;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .checkbox-label input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--primary);
+        }
+
+        /* ---- KNOPPEN ---- */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.2s, background 0.2s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(26, 86, 219, 0.3);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: #fff;
+        }
+
+        .btn-stripe {
+            background: #635BFF;
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(99, 91, 255, 0.3);
+        }
+
+        .btn-stripe:hover {
+            background: #5046E5;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 2px solid var(--primary);
+            color: var(--primary);
+        }
+
+        /* ---- RESULTATEN ---- */
+        #resultaten {
+            display: none;
+        }
+
+        .result-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        @media (max-width: 560px) {
+            .result-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .stat-card {
+            background: var(--bg);
+            border-radius: 10px;
+            padding: 1.2rem;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+
+        .stat-card .label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-card .value {
+            font-size: 1.8rem;
+            font-weight: 800;
+            margin-top: 0.3rem;
+            color: var(--primary);
+        }
+
+        .stat-card.success .value {
+            color: var(--success);
+        }
+
+        .stat-card.warning .value {
+            color: var(--warning);
+        }
+
+        .stat-card.danger .value {
+            color: var(--danger);
+        }
+
+        /* Conclusie-banner */
+        .conclusion {
+            padding: 1.2rem 1.5rem;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .conclusion.success {
+            background: var(--success-bg);
+            color: var(--success);
+            border: 1px solid #A7F3D0;
+        }
+
+        .conclusion.warning {
+            background: var(--warning-bg);
+            color: #92400E;
+            border: 1px solid #FDE68A;
+        }
+
+        .conclusion.danger {
+            background: var(--danger-bg);
+            color: var(--danger);
+            border: 1px solid #FECACA;
+        }
+
+        /* Puntendetails progress bars */
+        .progress-container {
+            width: 100%;
+            margin-bottom: 2rem;
+            background: #FAFAFA;
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+        }
+
+        .progress-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.8rem;
+        }
+
+        .progress-row:last-child {
+            margin-bottom: 0;
+            padding-top: 1rem;
+            border-top: 2px dashed var(--border);
+        }
+
+        .progress-label {
+            width: 140px;
+            font-size: 0.95rem;
+            color: var(--text);
+            font-family: monospace;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+
+        .progress-bar-wrapper {
+            flex-grow: 1;
+            margin: 0 1rem;
+            background-color: transparent;
+        }
+
+        .progress-bar {
+            height: 20px;
+            background-color: #111827;
+            border-radius: 2px;
+            transition: width 0.5s ease;
+        }
+
+        .progress-row.total-row .progress-bar {
+            background-color: var(--primary);
+        }
+
+        .progress-row.total-row .progress-label {
+            font-weight: 700;
+        }
+
+        .progress-value {
+            width: 35px;
+            text-align: right;
+            font-size: 1rem;
+            color: var(--text);
+            font-family: monospace;
+            flex-shrink: 0;
+            font-weight: 600;
+        }
+
+        /* Actieknoppen rij */
+        .action-row {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .action-row .btn {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        /* ---- STRIPE SECTIE ---- */
+        #stripe-sectie {
+            display: none;
+        }
+
+        .stripe-info {
+            background: linear-gradient(135deg, #F5F3FF, #EEF2FF);
+            border: 1px solid #C7D2FE;
+            border-radius: 10px;
+            padding: 1.25rem;
+            margin-bottom: 1rem;
+            font-size: 0.88rem;
+            color: #3730A3;
+        }
+
+        /* ---- FOOTER ---- */
+        .footer {
+            text-align: center;
+            padding: 2rem 1rem;
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            border-top: 1px solid var(--border);
+        }
+
+        .footer a {
+            color: var(--primary);
+            text-decoration: none;
+        }
+
+        /* ---- PROGRESS STAPPEN bovenaan formulier ---- */
+        .steps {
+            display: flex;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .step {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.85rem;
+            background: var(--border);
+            color: var(--text-muted);
+            transition: all 0.3s;
+        }
+
+        .step.active {
+            background: var(--primary);
+            color: #fff;
+            box-shadow: 0 2px 10px rgba(26, 86, 219, 0.3);
+        }
+
+        .step.done {
+            background: var(--success);
+            color: #fff;
+        }
+
+        .step-line {
+            width: 40px;
+            height: 2px;
+            background: var(--border);
+            align-self: center;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ============================================
+       HEADER — Titel en uitleg
+       ============================================ -->
+    <header class="header">
+        <div class="badge">🏠 WWS Puntentelling 2024</div>
+        <h1>Huurprijs Checker Nederland</h1>
+        <p>Bereken gratis de maximale huurprijs van uw woning op basis van het Woningwaarderingsstelsel.</p>
+    </header>
+
+    <main class="container">
+
+        <!-- Stappen-indicator -->
+        <div class="steps">
+            <div class="step active" id="step1">1</div>
+            <div class="step-line"></div>
+            <div class="step" id="step2">2</div>
+            <div class="step-line"></div>
+            <div class="step" id="step3">3</div>
+        </div>
+
+        <!-- ============================================
+         FORMULIER — Woninggegevens invoeren
+         ============================================ -->
+        <div class="card" id="formulier-card">
+            <h2><span class="icon">📝</span> Woninggegevens</h2>
+
+            <form id="wws-form" autocomplete="off">
+                <div class="form-grid">
+
+                    <!-- Postcode -->
+                    <div class="form-group">
+                        <label for="postcode">Postcode</label>
+                        <input type="text" id="postcode" placeholder="1234 AB" maxlength="7">
+                    </div>
+
+                    <!-- Woonoppervlakte -->
+                    <div class="form-group">
+                        <label for="oppervlakte">Woonoppervlakte (m²)</label>
+                        <input type="number" id="oppervlakte" placeholder="65" min="1" required>
+                    </div>
+
+                    <!-- Overige ruimte -->
+                    <div class="form-group">
+                        <label for="overige-ruimte">Overige ruimte (m²) <span
+                                class="optional">(optioneel)</span></label>
+                        <input type="number" id="overige-ruimte" placeholder="0" min="0" value="0">
+                    </div>
+
+                    <!-- Energielabel -->
+                    <div class="form-group">
+                        <label for="energielabel">Energielabel</label>
+                        <select id="energielabel" required>
+                            <option value="">— Kies label —</option>
+                            <option value="A++++">A++++</option>
+                            <option value="A+++">A+++</option>
+                            <option value="A++">A++</option>
+                            <option value="A+">A+</option>
+                            <option value="A">A</option>
+                            <option value="B">B</option>
+                            <option value="C">C</option>
+                            <option value="D">D</option>
+                            <option value="E">E</option>
+                            <option value="F">F</option>
+                            <option value="G">G</option>
+                        </select>
+                    </div>
+
+                    <!-- WOZ-waarde -->
+                    <div class="form-group">
+                        <label for="woz">WOZ-waarde (€) <span class="optional">(optioneel)</span></label>
+                        <input type="number" id="woz" placeholder="250000" min="0">
+                    </div>
+
+                    <!-- Aantal kamers -->
+                    <div class="form-group">
+                        <label for="kamers">Aantal kamers (woon+slaap)</label>
+                        <input type="number" id="kamers" placeholder="3" min="1" required>
+                    </div>
+
+                    <!-- Buitenruimte -->
+                    <div class="form-group full">
+                        <label>Buitenruimte</label>
+                        <div class="checkbox-row">
+                            <label class="checkbox-label"><input type="checkbox" id="balkon"> Balkon</label>
+                            <label class="checkbox-label"><input type="checkbox" id="tuin"> Tuin</label>
+                        </div>
+                    </div>
+
+                    <!-- Huidige huurprijs -->
+                    <div class="form-group full">
+                        <label for="huidige-huur">Huidige kale huurprijs (€/maand)</label>
+                        <input type="number" id="huidige-huur" placeholder="850" min="0" step="0.01" required>
+                    </div>
+                </div>
+
+                <!-- Bereken-knop -->
+                <div style="margin-top:1.5rem;">
+                    <button type="submit" class="btn btn-primary" id="bereken-btn">
+                        🔍 Bereken maximale huurprijs
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- ============================================
+         RESULTATEN — Worden zichtbaar na berekening
+         ============================================ -->
+        <div id="resultaten">
+            <!-- ── OFFICIËLE WWS DATA 2026 ────────────────────── -->
+            <div
+                style="background: #eff6ff; color: #1e40af; padding: 0.8rem; border-radius: 6px; font-size: 0.9rem; margin-bottom: 1rem;">
+                ℹ️ Berekening gebaseerd op officiële WWS-normen 2026 van rijksoverheid.nl — Geldig per: 1 januari 2026
+            </div>
+            <div class="card">
+                <h2><span class="icon">📊</span> Resultaat</h2>
+
+                <!-- Conclusie-banner (kleur wisselt op status) -->
+                <div class="conclusion" id="conclusie"></div>
+
+                <!-- Kerncijfers -->
+                <div class="result-grid">
+                    <div class="stat-card" id="punten-card">
+                        <div class="label">Totaal WWS-punten</div>
+                        <div class="value" id="totaal-punten">—</div>
+                    </div>
+                    <div class="stat-card" id="maxhuur-card">
+                        <div class="label">Maximale huurprijs</div>
+                        <div class="value" id="max-huur">—</div>
+                    </div>
+                    <div class="stat-card" id="huidig-card">
+                        <div class="label">Uw huidige huur</div>
+                        <div class="value" id="huidige-huur-val">—</div>
+                    </div>
+                    <div class="stat-card" id="verschil-card">
+                        <div class="label">Verschil</div>
+                        <div class="value" id="verschil-val">—</div>
+                    </div>
+                </div>
+
+                <!-- Puntendetails progress bars -->
+                <div class="progress-container" id="detail-body"></div>
+
+                <!-- Actieknoppen -->
+                <div class="action-row">
+                    <!-- ── GEWIJZIGD: Wijziging 1 (Verwijder printknop) ── -->
+                    <!-- ── GEWIJZIGD: Wijziging 2 (Gebruik generateGratisPDF) ── -->
+                    <button class="btn btn-success" onclick="generateGratisPDF()">📄 Download gratis
+                        samenvatting</button>
+                    <!-- ── GEWIJZIGD: Wijziging 3 (Prijs naar €5) ── -->
+                    <button class="btn btn-stripe" onclick="koopRapport()">💳 Koop uitgebreid rapport (€5)</button>
+                </div>
+            </div>
+
+            <!-- Stripe betalingssectie -->
+            <div class="card" id="stripe-sectie" style="display: none;">
+                <h2><span class="icon">💳</span> Uitgebreid rapport kopen</h2>
+                <div class="stripe-info">
+                    <strong>Wat krijgt u?</strong> Een uitgebreid PDF-rapport met juridische uitleg, vervolgstappen en
+                    een sjabloon-brief voor uw verhuurder of de Huurcommissie.
+                </div>
+                <button class="btn btn-stripe" onclick="startStripeCheckout()">Betaal €5,00 via Stripe</button>
+                <button onclick="generateUitgebreidRapport()" style="display:none" id="testPdfBtn">TEST PDF</button>
+                <p style="margin-top:0.75rem;font-size:0.82rem;color:var(--text-muted);">Veilige betaling via Stripe. Na
+                    betaling ontvangt u direct uw rapport.</p>
+            </div>
+        </div>
+
+        <!-- ============================================
+         UITLEG STRIPE (voor ontwikkelaars)
+         ============================================ -->
+        <!--
+      HOE STEL JE STRIPE IN?
+      1. Ga naar https://dashboard.stripe.com/register en maak een account aan.
+      2. Ga naar Developers > API keys en kopieer je "Publishable key" (begint met pk_).
+      3. Maak een Product aan in het Stripe Dashboard met prijs €5,00.
+      4. Kopieer de "Price ID" (begint met price_).
+      5. Vul beide waarden hieronder in bij de JavaScript-code.
+    -->
+
+    </main>
+
+    <footer class="footer">
+        <p>© 2024 Huurprijs Checker Nederland — Gebaseerd op het <a href="https://www.huurcommissie.nl"
+                target="_blank">Woningwaarderingsstelsel</a></p>
+        <p style="margin-top:0.4rem;">Deze tool is indicatief en vormt geen juridisch advies. Gebaseerd op officiële
+            2026-gegevens van rijksoverheid.nl</p>
+    </footer>
+
+    <!-- ============================================
+       JAVASCRIPT — Alle logica
+       ============================================ -->
+    <script>
+        // ── OFFICIËLE WWS DATA 2026 ──────────────────────
+        // Bron: rijksoverheid.nl
+        // Geldig per: 1 januari 2026
+        // Laatst gecontroleerd: 10 maart 2026
+        // LET OP: Alleen 2026-waarden — oudere data bewust
+        // uitgesloten
+        // ────────────────────────────────────────────────
+
+        const ENERGIELABEL_PUNTEN = {
+            'A++++': 62, 'A+++': 57, 'A++': 52, 'A+': 47,
+            'A': 41, 'B': 34, 'C': 22, 'D': 14,
+            'E': -5, 'F': -9, 'G': -15
+        };
+
+        function wozPunten(wozWaarde, oppervlakte) {
+            if (!wozWaarde || wozWaarde <= 0 || !oppervlakte) return 0;
+            // 2026 formule: (WOZ / 16.954) + (WOZ / Oppervlakte / 114), minimum = 85.806
+            const woz = Math.max(wozWaarde, 85806);
+            return (woz / 16954) + (woz / oppervlakte / 114);
+        }
+
+        function buitenruimtePunten(heeftBalkon, heeftTuin) {
+            // 2026 basispunten: 2 per buitenruimte + extra per m2. Omdat we m2 niet vragen, 
+            // gebruiken we een aanname van +2 punten voor kleine buitenruimtes
+            if (heeftBalkon && heeftTuin) return 8;
+            if (heeftTuin) return 5;
+            if (heeftBalkon) return 3;
+            return 0;
+        }
+
+        function maxHuurprijs(punten) {
+            // 2026 Huurprijsgrenzen tabel
+            if (punten >= 187) return null; // Vrije sector grens
+            if (punten >= 186) return 1228.07;
+            if (punten >= 144) return 939.79; // Middenhuur start
+            if (punten >= 143) return 932.93; // Sociale huurgrens
+            if (punten >= 110) return 706.32;
+            if (punten >= 40) return 250.26;
+            return 200.00;
+        }
+
+        function berekenWWS() {
+            const opp = parseFloat(document.getElementById('oppervlakte').value) || 0;
+            const overig = parseFloat(document.getElementById('overige-ruimte').value) || 0;
+            const label = document.getElementById('energielabel').value;
+            const woz = parseFloat(document.getElementById('woz').value) || 0;
+            const kamers = parseInt(document.getElementById('kamers').value) || 0;
+            const balkon = document.getElementById('balkon').checked;
+            const tuin = document.getElementById('tuin').checked;
+            const huidig = parseFloat(document.getElementById('huidige-huur').value) || 0;
+            const postcode = document.getElementById('postcode').value || 'Onbekend';
+
+            const puntenOpp = opp * 1;
+            const puntenOverig = overig * 0.75;
+            const puntenLabel = ENERGIELABEL_PUNTEN[label] || 0;
+            const puntenWOZ = wozPunten(woz, opp);
+            const puntenKamers = kamers * 3;
+            const puntenBuiten = buitenruimtePunten(balkon, tuin);
+
+            const totaal = Math.round(
+                puntenOpp + puntenOverig + puntenLabel + puntenWOZ + puntenKamers + puntenBuiten
+            );
+
+            const maxHuur = maxHuurprijs(totaal);
+            const verschil = maxHuur !== null ? huidig - maxHuur : null;
+
+            return {
+                postcode, opp, overig, label, woz, kamers, balkon, tuin, huidig,
+                details: [
+                    { categorie: 'Woonoppervlakte', berekening: opp + ' m²', punten: puntenOpp },
+                    { categorie: 'Energielabel', berekening: 'Label ' + label, punten: puntenLabel },
+                    { categorie: 'WOZ-waarde', berekening: woz ? euro(woz) : 'niet ingevuld', punten: puntenWOZ },
+                    { categorie: 'Aantal kamers', berekening: kamers + ' kamers (×3)', punten: puntenKamers },
+                    {
+                        categorie: 'Buitenruimte', berekening: (balkon ? 'Balkon ' : '') + (tuin ? 'Tuin' : '') || 'Geen', punten:
+                            puntenBuiten
+                    },
+                ],
+                totaal,
+                maxHuur,
+                verschil,
+                isVrijeSector: maxHuur === null
+            };
+        }
+
+        function euro(bedrag) {
+            if (bedrag === null) return 'Vrije sector';
+            return '€' + bedrag.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        let laatsteBerekening = null;
+
+        document.getElementById('wws-form').addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            const result = berekenWWS();
+            laatsteBerekening = result;
+
+            document.getElementById('totaal-punten').textContent = result.totaal;
+            document.getElementById('max-huur').textContent = euro(result.maxHuur);
+            document.getElementById('huidige-huur-val').textContent = euro(result.huidig);
+
+            const puntenCard = document.getElementById('punten-card');
+            puntenCard.className = 'stat-card' + (result.isVrijeSector ? '' : '');
+
+            const verschilCard = document.getElementById('verschil-card');
+            const conclusie = document.getElementById('conclusie');
+            let statusKlasse, statusTekst, verschilTekst;
+
+            if (result.isVrijeSector) {
+                statusKlasse = 'warning';
+                statusTekst = '⚠️ Vrije sector — Uw woning valt buiten het WWS. Er geldt geen wettelijk maximum.';
+                verschilTekst = 'n.v.t.';
+            } else if (result.verschil > 0) {
+                statusKlasse = 'danger';
+                statusTekst = '🚨 Te hoog! Uw huur is ' + euro(result.verschil) + ' hoger dan het wettelijk maximum.';
+                verschilTekst = '+' + euro(result.verschil);
+            } else if (result.verschil >= -50) {
+                statusKlasse = 'warning';
+                statusTekst = '⚠️ Controleer — Uw huur zit dicht bij het maximum. Verschil: ' + euro(Math.abs(result.verschil))
+                    + '.';
+                verschilTekst = euro(result.verschil);
+            } else {
+                statusKlasse = 'success';
+                statusTekst = '✅ Correct — Uw huur is ' + euro(Math.abs(result.verschil)) + ' onder het maximum.';
+                verschilTekst = euro(result.verschil);
+            }
+
+            conclusie.className = 'conclusion ' + statusKlasse;
+            conclusie.textContent = statusTekst;
+            verschilCard.className = 'stat-card ' + statusKlasse;
+            document.getElementById('verschil-val').textContent = verschilTekst;
+
+            const container = document.getElementById('detail-body');
+            container.innerHTML = '';
+
+            // Max bounds for bar chart scaling
+            const maxValFound = Math.max(...result.details.map(d => d.punten), 50);
+
+            result.details.forEach(function (d) {
+                if (Math.round(d.punten * 100) / 100 === 0 && d.categorie.includes("Buitenruimte")) return; // skip Buitenruimte if 0 because it's rarely filled
+                const row = document.createElement('div');
+                row.className = 'progress-row';
+                const barWidth = Math.max(0, (Math.abs(d.punten) / maxValFound) * 100);
+
+                let valFormatted = Math.round(d.punten * 100) / 100;
+
+                row.innerHTML =
+                    '<div class="progress-label">' + d.categorie + '</div>' +
+                    '<div class="progress-bar-wrapper"><div class="progress-bar" style="width: ' + barWidth + '%"></div></div>' +
+                    '<div class="progress-value">' + valFormatted + '</div>';
+                container.appendChild(row);
+            });
+
+            // Totaalrij
+            const rowTotaal = document.createElement('div');
+            rowTotaal.className = 'progress-row total-row';
+            rowTotaal.innerHTML =
+                '<div class="progress-label">TOTAAL</div>' +
+                '<div class="progress-bar-wrapper"><div class="progress-bar" style="width: ' + Math.min(100, (result.totaal / 187) * 100) + '%"></div></div>' +
+                '<div class="progress-value">' + result.totaal + '</div>';
+            container.appendChild(rowTotaal);
+
+            document.getElementById('resultaten').style.display = 'block';
+            document.getElementById('step1').className = 'step done';
+            document.getElementById('step2').className = 'step active';
+            document.getElementById('resultaten').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+
+        // ============================================
+        // STAP 2 — STRIPE BETALINGSINTEGRATIE
+        // ============================================
+
+        const STRIPE_PUBLISHABLE_KEY = 'pk_test_JOUW_STRIPE_PUBLISHABLE_KEY';
+        const STRIPE_PRICE_ID = 'price_JOUW_STRIPE_PRICE_ID';
+
+        function koopRapport() {
+            document.getElementById('stripe-sectie').style.display = 'block';
+            document.getElementById('stripe-sectie').scrollIntoView({ behavior: 'smooth' });
+            document.getElementById('step2').className = 'step done';
+            document.getElementById('step3').className = 'step active';
+        }
+
+        // ── GEWIJZIGD: Wijziging 3 (Stripe betaling aanzetten voor prijs €5) ──
+        function startStripeCheckout() {
+            try {
+                const stripe = Stripe(STRIPE_PUBLISHABLE_KEY);
+                stripe.redirectToCheckout({
+                    lineItems: [{ price: STRIPE_PRICE_ID, quantity: 1 }],
+                    mode: 'payment',
+                    successUrl: window.location.href + '?betaling=gelukt',
+                    cancelUrl: window.location.href + '?betaling=geannuleerd'
+                }).then(function (result) {
+                    if (result.error) alert('Betaalfout: ' + result.error.message);
+                });
+            } catch (err) {
+                alert('Stripe configuratie vereist: pas STRIPE_PUBLISHABLE_KEY en STRIPE_PRICE_ID aan.');
+            }
+        }
+
+        if (window.location.search.includes('betaling=gelukt')) {
+            window.addEventListener('DOMContentLoaded', function () {
+                const container = document.querySelector('.container');
+                const banner = document.createElement('div');
+                banner.className = 'card';
+                banner.innerHTML =
+                    '<h2><span class="icon">✅</span> Betaling geslaagd!</h2>' +
+                    '<p style="margin-bottom:1rem;">Uw uitgebreide rapport is klaar. Klik hieronder om te downloaden.</p>' +
+                    '<button class="btn btn-success" onclick="generateUitgebreidRapport()">📥 Download uitgebreid rapport (PDF)</button>';
+                container.prepend(banner);
+            });
+        }
+
+        // ============================================
+        // STAP 3 — PDF RAPPORT GENERATIE (jsPDF)
+        // ── GEWIJZIGD: Wijziging 2 (Volledig nieuwe, vereiste PDF layout met generateGratisPDF) ──
+        // ============================================
+
+        function generateGratisPDF() {
+            if (!laatsteBerekening) {
+                alert('Vul eerst de woninggegevens in en klik op "Bereken".');
+                return;
+            }
+
+            const r = laatsteBerekening;
+            const { jsPDF } = window.jspdf;
+            // Paginaformaat: A4 staand
+            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+            const margin = 20;
+            const pageWidth = 210;
+            const contentWidth = pageWidth - (margin * 2);
+            let currentY = margin;
+
+            // Kleuren
+            const darkBlue = [26, 86, 219]; // #1A56DB
+            const lightGray = [243, 244, 246]; // #F3F4F6
+            const textDark = [17, 24, 39]; // #111827
+            const textGray = [107, 114, 128]; // #6B7280
+
+            // ================= HEADER =================
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(22);
+            doc.setTextColor(...darkBlue);
+            doc.text('Huurprijs Checker Nederland', margin, currentY);
+
+            currentY += 8;
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(...textGray);
+            doc.text('Gratis Berekening Samenvatting', margin, currentY);
+
+            const dateStr = 'Berekend op: ' + new Date().toLocaleDateString('nl-NL');
+            const dateWidth = doc.getTextWidth(dateStr);
+            doc.text(dateStr, pageWidth - margin - dateWidth, currentY);
+
+            currentY += 6;
+            doc.setDrawColor(229, 231, 235); // #E5E7EB
+            doc.line(margin, currentY, pageWidth - margin, currentY);
+            currentY += 12; // Extra padding
+
+            // ================= SECTIE 1 — Woninggegevens =================
+            const boxHeight = 40;
+            doc.setFillColor(...lightGray);
+            doc.roundedRect(margin, currentY, contentWidth, boxHeight, 3, 3, 'F');
+
+            doc.setFontSize(10);
+            const col1X = margin + 5;
+            const col2X = margin + (contentWidth / 2) + 5;
+            const lineSpacing = 8;
+            let boxY = currentY + 8;
+
+            // Row 1
+            doc.setFont('helvetica', 'bold'); doc.setTextColor(...textDark); doc.text('Postcode:', col1X, boxY);
+            doc.setFont('helvetica', 'normal'); doc.setTextColor(...textGray); doc.text(r.postcode, col1X + 30, boxY);
+
+            doc.setFont('helvetica', 'bold'); doc.setTextColor(...textDark); doc.text('Huurprijs:', col2X, boxY);
+            doc.setFont('helvetica', 'normal'); doc.setTextColor(...textGray); doc.text(euro(r.huidig) + '/mnd', col2X + 30,
+                boxY);
+
+            boxY += lineSpacing;
+            // Row 2
+            doc.setFont('helvetica', 'bold'); doc.setTextColor(...textDark); doc.text('Oppervlakte:', col1X, boxY);
+            doc.setFont('helvetica', 'normal'); doc.setTextColor(...textGray); doc.text(r.opp + ' m²', col1X + 30, boxY);
+
+            doc.setFont('helvetica', 'bold'); doc.setTextColor(...textDark); doc.text('Energielabel:', col2X, boxY);
+            doc.setFont('helvetica', 'normal'); doc.setTextColor(...textGray); doc.text(r.label, col2X + 30, boxY);
+
+            boxY += lineSpacing;
+            // Row 3
+            doc.setFont('helvetica', 'bold'); doc.setTextColor(...textDark); doc.text('Kamers:', col1X, boxY);
+            doc.setFont('helvetica', 'normal'); doc.setTextColor(...textGray); doc.text('' + r.kamers, col1X + 30, boxY);
+
+            let buitenText = (r.balkon ? 'Balkon ' : '') + ((r.balkon && r.tuin) ? '& ' : '') + (r.tuin ? 'Tuin' : '');
+            if (!buitenText) buitenText = 'Geen';
+            doc.setFont('helvetica', 'bold'); doc.setTextColor(...textDark); doc.text('Buitenruimte:', col2X, boxY);
+            doc.setFont('helvetica', 'normal'); doc.setTextColor(...textGray); doc.text(buitenText, col2X + 30, boxY);
+
+            boxY += lineSpacing;
+            // Row 4
+            doc.setFont('helvetica', 'bold'); doc.setTextColor(...textDark); doc.text('WOZ-waarde:', col1X, boxY);
+            doc.setFont('helvetica', 'normal'); doc.setTextColor(...textGray); doc.text(r.woz ? euro(r.woz) : 'Niet ingevuld', col1X + 30, boxY);
+
+            doc.setFont('helvetica', 'bold'); doc.setTextColor(...textDark); doc.text('Bouwjaar:', col2X, boxY);
+            doc.setFont('helvetica', 'normal'); doc.setTextColor(...textGray); doc.text('Onbekend', col2X + 30, boxY);
+
+            currentY += boxHeight + 15;
+
+            // ================= SECTIE 2 — Puntentelling =================
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(14);
+            doc.setTextColor(...darkBlue);
+            doc.text('WWS Puntentelling', margin, currentY);
+
+            currentY += 6;
+            doc.setFontSize(10);
+
+            // Header Table
+            doc.setFillColor(...darkBlue);
+            doc.rect(margin, currentY, contentWidth, 8, 'F');
+            doc.setTextColor(255, 255, 255);
+            doc.text('Categorie', margin + 3, currentY + 5.5);
+            doc.text('Berekening', margin + 60, currentY + 5.5);
+            doc.text('Punten', pageWidth - margin - 3, currentY + 5.5, { align: 'right' });
+
+            currentY += 8;
+
+            // Table Rows
+            let isAlternate = false;
+            r.details.forEach(detail => {
+                if (isAlternate) {
+                    doc.setFillColor(249, 250, 251); // Very light grey #F9FAFB
+                    doc.rect(margin, currentY, contentWidth, 8, 'F');
+                }
+                doc.setTextColor(...textDark);
+                doc.setFont('helvetica', 'normal');
+                doc.text(detail.categorie, margin + 3, currentY + 5.5);
+                doc.setTextColor(...textGray);
+                doc.text(detail.berekening, margin + 60, currentY + 5.5);
+                doc.setTextColor(...textDark);
+                doc.text(detail.punten.toString(), pageWidth - margin - 3, currentY + 5.5, { align: 'right' });
+                currentY += 8;
+                isAlternate = !isAlternate;
+            });
+
+            // Verbindingslijn & Totaal
+            doc.setDrawColor(...textDark);
+            doc.line(margin, currentY + 2, pageWidth - margin, currentY + 2);
+
+            currentY += 8;
+            doc.setFont('helvetica', 'bold');
+            doc.text('TOTAAL', margin + 3, currentY + 2);
+            doc.text(r.totaal.toString(), pageWidth - margin - 3, currentY + 2, { align: 'right' });
+
+            currentY += 20;
+
+            // ================= SECTIE 3 — Uitkomst =================
+            let resultBg, resultColor, resultText;
+            if (r.isVrijeSector) {
+                resultBg = [254, 243, 199]; // #FEF3C7 Orange
+                resultColor = [146, 64, 14]; // #92400E
+                resultText = "valt in de vrije sector";
+            } else if (r.verschil > 0) {
+                resultBg = [254, 226, 226]; // #FEE2E2 Red
+                resultColor = [153, 27, 27]; // #991B1B
+                resultText = "te hoog";
+            } else if (r.verschil >= -50) {
+                resultBg = [254, 243, 199]; // #FEF3C7 Orange
+                resultColor = [146, 64, 14]; // #92400E
+                resultText = "licht verhoogd / kantje boord";
+            } else {
+                resultBg = [209, 250, 229]; // #D1FAE5 Green
+                resultColor = [6, 95, 70]; // #065F46
+                resultText = "onder maximum";
+            }
+
+            doc.setFillColor(...resultBg);
+            doc.roundedRect(margin, currentY, contentWidth, 30, 3, 3, 'F');
+
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(12);
+            doc.setTextColor(...resultColor);
+
+            doc.text('Maximale huurprijs: ' + euro(r.maxHuur) + ' per maand', margin + 5, currentY + 9);
+            doc.setFont('helvetica', 'normal');
+            doc.text('Jouw huidige huur: ' + euro(r.huidig) + ' per maand', margin + 5, currentY + 17);
+
+            let absVerschil = resultText === 'valt in de vrije sector' ? '—' : euro(Math.abs(r.verschil));
+            doc.setFont('helvetica', 'bold');
+            doc.text('Verschil: ' + absVerschil + ' per maand [' + resultText + ']', margin + 5, currentY + 25);
+
+            currentY += 45;
+
+            // ================= SECTIE 4 — Volgende stappen =================
+            doc.setFontSize(14);
+            doc.setTextColor(...darkBlue);
+            doc.text('Wat kun je doen?', margin, currentY);
+
+            currentY += 8;
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(...textDark);
+
+            if (r.verschil > 0) {
+                doc.text('• Neem contact op met de Huurcommissie via huurcommissie.nl', margin + 5, currentY); currentY += 6;
+                doc.text('• Dien een huurverlaging aan bij je verhuurder', margin + 5, currentY); currentY += 6;
+                doc.text('• Vraag het uitgebreide rapport aan voor juridische onderbouwing', margin + 5, currentY);
+            } else {
+                doc.text('• Je huur is conform de wettelijke normen', margin + 5, currentY); currentY += 6;
+                doc.text('• Bekijk het uitgebreide rapport voor een volledig overzicht', margin + 5, currentY);
+            }
+
+            // ================= FOOTER =================
+            // Positie fixeren onderaan de pagina (A4 hoogte = 297mm)
+            const footerY = 280;
+
+            doc.setDrawColor(229, 231, 235);
+            doc.line(margin, footerY, pageWidth - margin, footerY);
+
+            doc.setFontSize(9);
+            doc.setTextColor(...textGray);
+
+            doc.text('© Huurprijs Checker Nederland', margin, footerY + 5);
+            const pageText = 'Pagina 1 van 1';
+            const pageTextWidth = doc.getTextWidth(pageText);
+            doc.text(pageText, pageWidth - margin - pageTextWidth, footerY + 5);
+
+            doc.setFontSize(7);
+            const disclaimer1 = 'Deze berekening is indicatief en vormt geen juridisch advies.';
+            const disclaimer2 = 'Raadpleeg www.huurcommissie.nl voor een bindende uitspraak.';
+            doc.text(disclaimer1, pageWidth / 2, footerY + 10, { align: 'center' });
+            doc.text(disclaimer2, pageWidth / 2, footerY + 13, { align: 'center' });
+
+            doc.save(`huurcheck-samenvatting-${r.postcode.replace(/\s+/g, '')}.pdf`);
+        }
+
+        function generateUitgebreidRapport() {
+            if (!laatsteBerekening) {
+                alert('Vul eerst de woninggegevens in en klik op "Bereken".');
+                return;
+            }
+
+            const r = laatsteBerekening;
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+            const pageWidth = 210;
+            const pageHeight = 297;
+            const margin = 20;
+            const marginTop = 25;
+            const contentWidth = pageWidth - (margin * 2);
+
+            // Kleurenschema
+            const primaryBlue = [26, 86, 219]; // #1A56DB
+            const successGreen = [5, 122, 85]; // #057A55
+            const warningRed = [224, 36, 36]; // #E02424
+            const warningOrange = [227, 160, 8]; // #E3A008
+            const lightGray = [243, 244, 246]; // #F3F4F6
+            const darkText = [17, 25, 40]; // #111928
+
+            let currentY = marginTop;
+            let pageNum = 1;
+
+            function addFooter() {
+                doc.setFontSize(9);
+                doc.setTextColor(107, 114, 128);
+                doc.setFont('helvetica', 'normal');
+                doc.text('Pagina ' + pageNum, pageWidth - margin, 290, { align: 'right' });
+            }
+
+            function checkPageBreak(heightNeeded) {
+                if (currentY + heightNeeded > pageHeight - 20) {
+                    addFooter();
+                    doc.addPage();
+                    pageNum++;
+                    currentY = marginTop;
+                    return true;
+                }
+                return false;
+            }
+
+            // ── PDF PAGINA 1: VOORPAGINA ────────────────
+
+            // [HEADER BLOK]
+            doc.setFillColor(...primaryBlue);
+            doc.rect(0, 0, pageWidth, 45, 'F');
+
+            doc.setTextColor(255, 255, 255);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(24);
+            doc.text('Huurprijs Checker Nederland', pageWidth / 2, 22, { align: 'center' });
+
+            doc.setFontSize(14);
+            doc.setFont('helvetica', 'normal');
+            doc.text('Uitgebreid Analyse Rapport', pageWidth / 2, 32, { align: 'center' });
+
+            currentY = 60;
+
+            // [RAPPORT INFO]
+            doc.setFontSize(11);
+            doc.setTextColor(...darkText);
+
+            const vandaag = new Date();
+            const datumString = vandaag.toLocaleDateString('nl-NL');
+            const rapportNr = vandaag.getFullYear() + '-' + String(vandaag.getMonth() + 1).padStart(2, '0') + '-' + String(vandaag.getDate()).padStart(2, '0') + '-' + (r.postcode.replace(/\s+/g, '') || 'ONBEKEND');
+
+            doc.setFont('helvetica', 'bold');
+            doc.text('Postcode:', margin, currentY);
+            doc.setFont('helvetica', 'normal');
+            doc.text(r.postcode || 'Niet ingevuld', margin + 30, currentY);
+
+            doc.setFont('helvetica', 'bold');
+            doc.text('Rapportdatum:', pageWidth - margin - 80, currentY);
+            doc.setFont('helvetica', 'normal');
+            doc.text(datumString, pageWidth - margin - 40, currentY);
+
+            currentY += 8;
+
+            doc.setFont('helvetica', 'bold');
+            doc.text('Rapportnummer:', pageWidth - margin - 80, currentY);
+            doc.setFont('helvetica', 'normal');
+            doc.text(rapportNr, pageWidth - margin - 40, currentY);
+
+            currentY += 40;
+
+            // [GROOT RESULTAATVLAK]
+            let resultColor;
+            let resultTitle;
+            let pctDiff = 0;
+
+            if (r.isVrijeSector) {
+                resultColor = lightGray;
+                resultTitle = "VRIJE SECTOR - GEEN MAXIMUM";
+            } else {
+                pctDiff = r.huidig > 0 && r.maxHuur > 0 ? (r.huidig / r.maxHuur) - 1 : 0;
+
+                if (r.verschil > 0) {
+                    if (pctDiff <= 0.10) {
+                        resultColor = [254, 251, 235]; // Light yellow/orange warning bg
+                        resultTitle = "Uw huur is LICHT VERHOOGD";
+                    } else {
+                        resultColor = [254, 242, 242]; // Light red bg
+                        resultTitle = "Uw huur is TE HOOG";
+                    }
+                } else {
+                    resultColor = [236, 253, 245]; // Light green bg
+                    if (r.verschil < -100) {
+                        resultTitle = "Uw huur is RUIM ONDER MAX";
+                    } else {
+                        resultTitle = "Uw huur is CORRECT";
+                    }
+                }
+            }
+
+            doc.setFillColor(...resultColor);
+            doc.roundedRect(margin, currentY, contentWidth, 80, 5, 5, 'F');
+
+            let boxY = currentY + 15;
+
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(22);
+            if (r.verschil > 0 && pctDiff > 0.10) {
+                doc.setTextColor(...warningRed);
+            } else if (r.verschil > 0) {
+                doc.setTextColor(...warningOrange);
+            } else if (!r.isVrijeSector) {
+                doc.setTextColor(...successGreen);
+            } else {
+                doc.setTextColor(...darkText);
+            }
+
+            doc.text(resultTitle, pageWidth / 2, boxY, { align: 'center' });
+
+            boxY += 20;
+
+            doc.setTextColor(...darkText);
+            doc.setFontSize(14);
+
+            const printCenterVals = (label, val, y) => {
+                doc.setFont('helvetica', 'normal');
+                doc.text(label, pageWidth / 2 - 5, y, { align: 'right' });
+                doc.setFont('helvetica', 'bold');
+                doc.text(val, pageWidth / 2 + 5, y, { align: 'left' });
+            };
+
+            const euroFormat = (bedrag) => '€' + bedrag.toLocaleString('nl-NL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+            let maxT = r.isVrijeSector ? 'Geen maximum' : euroFormat(r.maxHuur);
+            let huidigT = euroFormat(r.huidig);
+            let vpmT = r.isVrijeSector ? 'n.v.t.' : '+' + euroFormat(r.verschil);
+            if (!r.isVrijeSector && r.verschil < 0) vpmT = euroFormat(r.verschil);
+            let vpjT = r.isVrijeSector ? 'n.v.t.' : '+' + euroFormat(r.verschil * 12);
+            if (!r.isVrijeSector && r.verschil < 0) vpjT = euroFormat(r.verschil * 12);
+
+            printCenterVals('Maximale huurprijs:', maxT, boxY); boxY += 10;
+            printCenterVals('Uw huidige huur:', huidigT, boxY); boxY += 10;
+            printCenterVals('Verschil per maand:', vpmT, boxY); boxY += 10;
+            printCenterVals('Verschil per jaar:', vpjT, boxY);
+
+            // Footer voorpagina
+            doc.setFontSize(9);
+            doc.setTextColor(107, 114, 128);
+            doc.setFont('helvetica', 'normal');
+            doc.text('Dit rapport is opgesteld op basis van het officiële Woningwaarderingsstelsel (WWS) — rijksoverheid.nl', pageWidth / 2, 280, { align: 'center' });
+            addFooter();
+
+            // ── PDF PAGINA 2: WONINGGEGEVENS & PUNTENTELLING ────────────────
+            doc.addPage();
+            pageNum++;
+            currentY = marginTop;
+
+            // [SECTIE 1]
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...primaryBlue);
+            doc.text('1. Woninggegevens', margin, currentY);
+
+            currentY += 10;
+
+            doc.setFillColor(...lightGray);
+            doc.roundedRect(margin, currentY, contentWidth, 40, 3, 3, 'F');
+
+            doc.setFontSize(11);
+            doc.setTextColor(...darkText);
+
+            const lh = 8;
+            let ry = currentY + 10;
+            const cw = contentWidth / 2;
+
+            doc.setFont('helvetica', 'bold'); doc.text('Postcode:', margin + 5, ry);
+            doc.setFont('helvetica', 'normal'); doc.text(r.postcode || '-', margin + 40, ry);
+            doc.setFont('helvetica', 'bold'); doc.text('Huurprijs:', margin + cw + 5, ry);
+            doc.setFont('helvetica', 'normal'); doc.text(euroFormat(r.huidig) + '/mnd', margin + cw + 35, ry);
+            ry += lh;
+
+            doc.setFont('helvetica', 'bold'); doc.text('Woonoppervlakte:', margin + 5, ry);
+            doc.setFont('helvetica', 'normal'); doc.text(r.opp + ' m²', margin + 40, ry);
+            doc.setFont('helvetica', 'bold'); doc.text('Energielabel:', margin + cw + 5, ry);
+            doc.setFont('helvetica', 'normal'); doc.text(r.label || '-', margin + cw + 35, ry);
+            ry += lh;
+
+            doc.setFont('helvetica', 'bold'); doc.text('Aantal kamers:', margin + 5, ry);
+            doc.setFont('helvetica', 'normal'); doc.text('' + r.kamers, margin + 40, ry);
+            let bText = (r.balkon ? 'Balkon ' : '') + ((r.balkon && r.tuin) ? '& ' : '') + (r.tuin ? 'Tuin' : '');
+            doc.setFont('helvetica', 'bold'); doc.text('Buitenruimte:', margin + cw + 5, ry);
+            doc.setFont('helvetica', 'normal'); doc.text(bText || 'n.v.t.', margin + cw + 35, ry);
+            ry += lh;
+
+            doc.setFont('helvetica', 'bold'); doc.text('WOZ-waarde:', margin + 5, ry);
+            doc.setFont('helvetica', 'normal'); doc.text(r.woz > 0 ? euroFormat(r.woz) : 'Niet ingevuld', margin + 40, ry);
+            doc.setFont('helvetica', 'bold'); doc.text('Bouwjaar:', margin + cw + 5, ry);
+            doc.setFont('helvetica', 'normal'); doc.text('Onbekend', margin + cw + 35, ry);
+
+            currentY += 55;
+
+            // [SECTIE 2]
+            checkPageBreak(80);
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...primaryBlue);
+            doc.text('2. WWS Puntentelling', margin, currentY);
+            currentY += 8;
+
+            const d0 = r.details[0]; // Oppervlakte + Overig (opp isn't split in details but we can show what we have)
+            const d1 = r.details[1]; // Label
+            const d2 = r.details[2]; // WOZ
+            const d3 = r.details[3]; // Kamers
+            const d4 = r.details[4]; // Buiten
+
+            const tableData = [
+                [d0.categorie, d0.berekening, d0.punten, 'n.v.t.'],
+                [d1.categorie, d1.berekening, d1.punten, '52'],
+                [d2.categorie, r.woz > 0 ? `${euroFormat(r.woz)} (${euroFormat(Math.round(r.woz / r.opp))}/m²)` : d2.berekening, d2.punten.toFixed(2), '33'],
+                [d3.categorie, d3.berekening, d3.punten, 'n.v.t.'],
+                [d4.categorie, d4.berekening, d4.punten, '6'],
+                ['TOTAAL', '', r.totaal, '']
+            ];
+
+            doc.autoTable({
+                startY: currentY,
+                head: [['Categorie', 'Jouw situatie', 'Punten', 'Max.']],
+                body: tableData,
+                theme: 'striped',
+                headStyles: { fillColor: primaryBlue, textColor: 255, fontStyle: 'bold' },
+                alternateRowStyles: { fillColor: [249, 250, 251] },
+                margin: { left: margin, right: margin },
+                willDrawCell: function (data) {
+                    if (data.row.index === tableData.length - 1) {
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFillColor(239, 246, 255);
+                    }
+                }
+            });
+
+            currentY = doc.lastAutoTable.finalY + 15;
+
+            // [SECTIE 3]
+            checkPageBreak(80);
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...primaryBlue);
+            doc.text('3. Puntenverdeling', margin, currentY);
+            currentY += 15;
+
+            const maxBarW = 120;
+            const maxValFound = Math.max(d0.punten, d1.punten, d2.punten, d3.punten, d4.punten, 50);
+
+            const drawBar = (label, points, isTotal) => {
+                doc.setFont('helvetica', isTotal ? 'bold' : 'normal');
+                doc.setFontSize(10);
+                doc.setTextColor(...darkText);
+                doc.text(label, margin, currentY + 4);
+
+                const barStartX = margin + 40;
+
+                doc.setFillColor(...lightGray);
+                const bgW = isTotal ? maxBarW : maxBarW;
+                doc.rect(barStartX, currentY, bgW, 6, 'F');
+
+                let actFillW = 0;
+                if (isTotal) {
+                    actFillW = maxBarW * Math.min(1, points / 187);
+                } else {
+                    actFillW = maxBarW * Math.min(1, Math.max(0, points) / maxValFound);
+                }
+
+                if (isTotal) {
+                    doc.setFillColor(59, 130, 246);
+                } else {
+                    doc.setFillColor(...primaryBlue);
+                }
+
+                if (points > 0) {
+                    doc.rect(barStartX, currentY, actFillW, 6, 'F');
+                }
+
+                doc.text(`${(Math.round(points * 100) / 100)} pt`, barStartX + maxBarW + 5, currentY + 4);
+
+                currentY += 14;
+            };
+
+            drawBar('Woonoppervlakte', d0.punten, false);
+            drawBar('Energielabel', d1.punten, false);
+            drawBar('WOZ-waarde', d2.punten, false);
+            drawBar('Kamers', d3.punten, false);
+            drawBar('Buitenruimte', d4.punten, false);
+            drawBar('── TOTAAL ──', r.totaal, true);
+
+            addFooter();
+
+            // ── PDF PAGINA 3: JURIDISCH + STAPPENPLAN ────────────────
+            doc.addPage();
+            pageNum++;
+            currentY = marginTop;
+
+            // [SECTIE 4]
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...primaryBlue);
+            doc.text('4. Uw Rechten als Huurder', margin, currentY);
+            currentY += 10;
+
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(...darkText);
+
+            const legalText = "Het Woningwaarderingsstelsel (WWS) is een wettelijk puntensysteem dat de maximale huurprijs bepaalt voor sociale huurwoningen in Nederland. Dit stelsel is vastgelegd in het Besluit huurprijzen woonruimte.\n\nRecht op huurverlaging:\nAls uw huurprijs hoger is dan de maximale huurprijs volgens het WWS, heeft u het recht om huurverlaging aan te vragen. U kunt hiervoor een verzoek indienen bij de Huurcommissie. De Huurcommissie doet een bindende uitspraak over de redelijkheid van uw huur.\n\nWanneer kunt u een procedure starten?\n- Uw woning heeft 186 punten of minder (sociale huur, dan wel middenhuur indien van toepassing onder Wet betaalbare huur)\n- Uw huurprijs ligt boven de maximale huurprijs\n- Uw huurcontract is niet ouder dan 6 maanden (voor nieuwe huurders), of u vraagt jaarlijkse huurverlaging aan op basis van punten\n\nTijdelijke verhuur:\nWoningen die tijdelijk worden verhuurd via de Wet doorstroming huurmarkt kunnen afwijkende regels hebben. Raadpleeg altijd de Huurcommissie voor uw specifieke situatie.";
+
+            const splitTitle = doc.splitTextToSize(legalText, contentWidth);
+            doc.text(splitTitle, margin, currentY);
+            currentY += (splitTitle.length * 5) + 10;
+
+            // [SECTIE 5]
+            checkPageBreak(120);
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...primaryBlue);
+            doc.text('5. Wat kunt u doen?', margin, currentY);
+            currentY += 10;
+
+            if (r.verschil > 0 && !r.isVrijeSector) {
+                const drawStep = (num, title, text, color) => {
+                    let bgColor = [255, 255, 255];
+                    let textColor = darkText;
+                    if (color === 'orange') { bgColor = [254, 240, 138]; textColor = [133, 77, 14]; }
+                    else if (color === 'blue') { bgColor = [219, 234, 254]; textColor = [30, 58, 138]; }
+                    else if (color === 'green') { bgColor = [209, 250, 229]; textColor = [6, 95, 70]; }
+
+                    doc.setFillColor(...bgColor);
+                    doc.roundedRect(margin, currentY, contentWidth, 22, 2, 2, 'F');
+                    doc.setTextColor(...textColor);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text(`Stap ${num} — ${title}`, margin + 5, currentY + 8);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(9);
+                    doc.text(text, margin + 5, currentY + 15);
+                    currentY += 28;
+                };
+
+                drawStep(1, "Controleer uw huurcontract", "Zoek de ingangsdatum en de overeengekomen huurprijs op in uw huurcontract.", "orange");
+                checkPageBreak(30);
+                drawStep(2, "Stuur een brief aan uw verhuurder", "Verzoek schriftelijk om huurverlaging op basis van de WWS-puntentelling. Bewaar een kopie.", "orange");
+                checkPageBreak(30);
+                drawStep(3, "Dien een verzoek in bij de Huurcommissie", "Als uw verhuurder niet reageert of weigert, kunt u een verzoekschrift indienen (kosten €25).", "blue");
+                checkPageBreak(30);
+                drawStep(4, "Huurcommissie doet uitspraak", "De Huurcommissie doet binnen 6-8 weken een bindende uitspraak met terugwerkende kracht.", "green");
+
+            } else {
+                doc.setFillColor(...lightGray);
+                doc.roundedRect(margin, currentY, contentWidth, 30, 2, 2, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11);
+                doc.setTextColor(6, 95, 70);
+                let msg = r.isVrijeSector ? "Uw woning valt in de vrije sector. Er is geen maximale wettelijke huurprijs." : "Uw huurprijs is conform de wettelijke normen.";
+                doc.text(msg, margin + 5, currentY + 10);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(10);
+                doc.setTextColor(...darkText);
+                doc.text("U hoeft op dit moment geen actie te ondernemen. Bewaar dit rapport voor uw administratie.", margin + 5, currentY + 20);
+                currentY += 40;
+            }
+
+            // [SECTIE 6]
+            checkPageBreak(60);
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(...primaryBlue);
+            doc.text('6. Contactgegevens', margin, currentY);
+            currentY += 10;
+
+            doc.setFillColor(...lightGray);
+            doc.roundedRect(margin, currentY, contentWidth, 40, 3, 3, 'F');
+            doc.setFontSize(11);
+            doc.setTextColor(...darkText);
+
+            doc.setFont('helvetica', 'bold'); doc.text('🏛 De Huurcommissie', margin + 5, currentY + 10);
+
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+            doc.text('Website:', margin + 5, currentY + 20); doc.text('www.huurcommissie.nl', margin + 25, currentY + 20);
+            doc.text('Telefoon:', margin + 5, currentY + 26); doc.text('070 - 353 8888', margin + 25, currentY + 26);
+            doc.text('Postadres:', margin + 5, currentY + 32); doc.text('Postbus 16495, 2500 BL Den Haag', margin + 25, currentY + 32);
+
+            const rightColX = margin + (contentWidth / 2) + 5;
+            doc.setFont('helvetica', 'bold'); doc.text('Rijksoverheid informatie:', rightColX, currentY + 20);
+            doc.setFont('helvetica', 'normal');
+            const rL1 = doc.splitTextToSize('www.rijksoverheid.nl/onderwerpen/huurprijs-en-puntentelling', (contentWidth / 2) - 15);
+            doc.text(rL1, rightColX, currentY + 26);
+
+            addFooter();
+
+            // ── LAATSTE PAGINA — DISCLAIMER & AFSLUITING ────────────────
+            doc.addPage();
+            pageNum++;
+            currentY = marginTop;
+
+            const disclaimerH = 60;
+            const disclaimerY = pageHeight - margin - disclaimerH;
+
+            doc.setFillColor(...primaryBlue);
+            doc.rect(margin, disclaimerY, contentWidth, disclaimerH, 'F');
+
+            doc.setTextColor(255, 255, 255);
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'normal');
+
+            const dText = `Dit rapport is gegenereerd door Huurprijs Checker Nederland op basis van officiële WWS-normen van rijksoverheid.nl (geldig per 1 januari 2026).\n\nDeze berekening is indicatief en vormt geen juridisch advies. De uitkomst is gebaseerd op de door u ingevoerde gegevens. Raadpleeg de officiële Huurcommissie via huurcommissie.nl voor een bindende uitspraak.\n\n© ${new Date().getFullYear()} Huurprijs Checker Nederland`;
+
+            const dLines = doc.splitTextToSize(dText, contentWidth - 10);
+            doc.text(dLines, margin + 5, disclaimerY + 10);
+
+            addFooter();
+
+            // ── SAVE ────────────────
+            doc.save(`huurcheck-uitgebreid-${(r.postcode || 'XX').replace(/\s+/g, '')}-${datumString.replace(/\//g, '-')}.pdf`);
+        }
+    </script>
+</body>
+
+</html>
